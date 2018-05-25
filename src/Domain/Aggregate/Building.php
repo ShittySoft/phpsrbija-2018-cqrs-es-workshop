@@ -8,6 +8,7 @@ use Building\Domain\DomainEvent\CheckInAnomalyDetected;
 use Building\Domain\DomainEvent\NewBuildingWasRegistered;
 use Building\Domain\DomainEvent\UserCheckedIn;
 use Building\Domain\DomainEvent\UserCheckedOut;
+use Building\Domain\ReadModel\UserIsAuthorised;
 use Prooph\EventSourcing\AggregateRoot;
 use Rhumsaa\Uuid\Uuid;
 
@@ -40,8 +41,17 @@ final class Building extends AggregateRoot
         return $self;
     }
 
-    public function checkInUser(string $username) : void
+    public function checkInUser(string $username, UserIsAuthorised $authorised) : void
     {
+        if (! $authorised->__invoke($username)) {
+            throw new \Exception(sprintf(
+                'User "%s" not authorised to access "%s" (%s)',
+                $username,
+                $this->name,
+                $this->uuid->toString()
+            ));
+        }
+
         $anomaly = array_key_exists($username, $this->checkedInUsers);
 
         $this->recordThat(UserCheckedIn::toBuilding(

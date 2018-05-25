@@ -13,6 +13,7 @@ use Building\Domain\Aggregate\Building;
 use Building\Domain\Command;
 use Building\Domain\DomainEvent\UserCheckedIn;
 use Building\Domain\DomainEvent\UserCheckedOut;
+use Building\Domain\ReadModel\UserIsAuthorised;
 use Building\Domain\Repository\BuildingRepositoryInterface;
 use Building\Infrastructure\Repository\BuildingRepository;
 use Doctrine\DBAL\Connection;
@@ -208,7 +209,15 @@ return new ServiceManager([
             return function (Command\CheckInUser $command) use ($buildings) {
                 $building = $buildings->get($command->building());
 
-                $building->checkInUser($command->username());
+                $building->checkInUser(
+                    $command->username(),
+                    new class implements UserIsAuthorised {
+                        public function __invoke(string $username) : bool
+                        {
+                            return strtolower($username) !== 'realdonaldtrump';
+                        }
+                    }
+                );
 
                 $buildings->add($building);
             };

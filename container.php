@@ -11,6 +11,8 @@ use Bernard\QueueFactory;
 use Bernard\QueueFactory\PersistentFactory;
 use Building\Domain\Aggregate\Building;
 use Building\Domain\Command;
+use Building\Domain\DomainEvent\UserCheckedIn;
+use Building\Domain\DomainEvent\UserCheckedOut;
 use Building\Domain\Repository\BuildingRepositoryInterface;
 use Building\Infrastructure\Repository\BuildingRepository;
 use Doctrine\DBAL\Connection;
@@ -24,6 +26,7 @@ use Prooph\Common\Event\ActionEventListenerAggregate;
 use Prooph\Common\Event\ProophActionEventEmitter;
 use Prooph\Common\Messaging\FQCNMessageFactory;
 use Prooph\Common\Messaging\NoOpMessageConverter;
+use Prooph\EventSourcing\AggregateChanged;
 use Prooph\EventSourcing\EventStoreIntegration\AggregateTranslator;
 use Prooph\EventStore\Adapter\Doctrine\DoctrineEventStoreAdapter;
 use Prooph\EventStore\Adapter\Doctrine\Schema\EventStoreSchema;
@@ -242,6 +245,16 @@ return new ServiceManager([
                 },
             ];
         },
+        \Building\Domain\DomainEvent\UserCheckedIn::class . '-projectors' => function (ContainerInterface $container) : array {
+            return [
+                $container->get('checked-in-users-projection'),
+            ];
+        },
+        \Building\Domain\DomainEvent\UserCheckedOut::class . '-projectors' => function (ContainerInterface $container) : array {
+            return [
+                $container->get('checked-in-users-projection'),
+            ];
+        },
         BuildingRepositoryInterface::class => function (ContainerInterface $container) : BuildingRepositoryInterface {
             return new BuildingRepository(
                 new AggregateRepository(
@@ -250,6 +263,45 @@ return new ServiceManager([
                     new AggregateTranslator()
                 )
             );
+        },
+        'checked-in-users-projection' => function (ContainerInterface $container) : callable {
+            /** @var EventStore $eventStore */
+            $eventStore = $container->get(EventStore::class);
+
+            return function () use ($eventStore) : void {
+                /** @var AggregateChanged[] $events */
+                $events = $eventStore->loadEventsByMetadataFrom(
+                    new \Prooph\EventStore\Stream\StreamName('event_stream'),
+                    [
+                        'aggregate_type' => \Building\Domain\Aggregate\Building::class,
+                    ]
+                );
+
+                $users = [];
+
+                foreach ($events as $pastEvent) {
+                    $aggregateId = $pastEvent->aggregateId();
+
+                    if (! isset($users[$aggregateId])) {
+                        $users[$aggregateId] = [];
+                    }
+
+                    if ($pastEvent instanceof UserCheckedIn) {
+                        $users[$aggregateId][$pastEvent->username()] = null;
+                    }
+
+                    if ($pastEvent instanceof UserCheckedOut) {
+                        unset($users[$aggregateId][$pastEvent->username()]);
+                    }
+                }
+
+                array_walk($users, function (array $users, string $aggregateId) : void {
+                    file_put_contents(
+                        __DIR__ . '/public/building-' . $aggregateId . '.json',
+                        json_encode(array_keys($users))
+                    );
+                });
+            };
         },
     ],
 ]);

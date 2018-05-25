@@ -221,6 +221,27 @@ return new ServiceManager([
                 $buildings->add($building);
             };
         },
+        Command\NotifySecurityOfBreach::class => function () : callable {
+            return function (Command\NotifySecurityOfBreach $command) : void {
+                error_log(sprintf(
+                    'Breach in "%s" caused by user "%s"',
+                    $command->building()->toString(),
+                    $command->username()
+                ));
+            };
+        },
+        \Building\Domain\DomainEvent\CheckInAnomalyDetected::class . '-listeners' => function (ContainerInterface $container) : array {
+            $commandBus = $container->get(CommandBus::class);
+
+            return [
+                function (\Building\Domain\DomainEvent\CheckInAnomalyDetected $event) use ($commandBus) : void {
+                    $commandBus->dispatch(Command\NotifySecurityOfBreach::inBuilding(
+                        $event->building(),
+                        $event->username()
+                    ));
+                },
+            ];
+        },
         BuildingRepositoryInterface::class => function (ContainerInterface $container) : BuildingRepositoryInterface {
             return new BuildingRepository(
                 new AggregateRepository(
